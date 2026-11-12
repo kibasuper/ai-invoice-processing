@@ -1,0 +1,31 @@
+file,vendor,invoice_number,invoice_date,total,currency,expected_status,expected_reason
+brightwave_BW-0160.pdf,Brightwave Marketing Co.,BW-0160,2026-08-14,11424.00,PHP,filed,
+brightwave_BW-0161.pdf,Brightwave Marketing Co.,BW-0161,2026-08-04,16240.00,PHP,filed,
+brightwave_BW-0170.pdf,Brightwave Marketing Co.,BW-0170,2026-10-17,16240.00,PHP,filed,
+brightwave_BW-0179.pdf,Brightwave Marketing Co.,BW-0179,2026-09-23,25424.00,PHP,filed,
+brightwave_BW-0182.pdf,Brightwave Marketing Co.,BW-0182,2026-09-24,34944.00,PHP,filed,
+northstar_NS0114.pdf,Northstar IT Supplies,NS0114,2026-08-12,13410.00,PHP,filed,
+northstar_NS0123.pdf,Northstar IT Supplies,NS0123,2026-09-07,12190.00,PHP,filed,
+northstar_NS0125.pdf,Northstar IT Supplies,NS0125,2026-09-18,10330.00,PHP,filed,
+northstar_NS0128.pdf,Northstar IT Supplies,NS0128,2026-10-08,13040.00,PHP,filed,
+northstar_NS0129.pdf,Northstar IT Supplies,NS0129,2026-08-30,2860.00,PHP,filed,
+greenleaf_GL-0244.pdf,GreenLeaf Catering,GL-0244,2026-10-12,13810.00,PHP,filed,
+greenleaf_GL-0248.pdf,GreenLeaf Catering,GL-0248,2026-10-11,11820.00,PHP,filed,
+greenleaf_GL-0250.pdf,GreenLeaf Catering,GL-0250,2026-08-07,7500.00,PHP,filed,
+greenleaf_GL-0252.pdf,GreenLeaf Catering,GL-0252,2026-09-19,6750.00,PHP,filed,
+greenleaf_GL-0258.pdf,GreenLeaf Catering,GL-0258,2026-08-15,4940.00,PHP,filed,
+pacific_INV-2026-0234.pdf,Pacific Cloud Hosting,INV-2026-0234,2026-08-14,101.00,USD,filed,
+pacific_INV-2026-0237.pdf,Pacific Cloud Hosting,INV-2026-0237,2026-10-09,51.00,USD,filed,
+pacific_INV-2026-0245.pdf,Pacific Cloud Hosting,INV-2026-0245,2026-08-03,51.00,USD,filed,
+pacific_INV-2026-0249.pdf,Pacific Cloud Hosting,INV-2026-0249,2026-08-08,87.00,USD,filed,
+pacific_INV-2026-0257.pdf,Pacific Cloud Hosting,INV-2026-0257,2026-08-09,38.00,USD,filed,
+alder_AF-0217.pdf,Alder & Finch Legal Services,AF/0217,2026-09-03,31920.00,PHP,filed,
+alder_AF-0223.pdf,Alder & Finch Legal Services,AF/0223,2026-09-26,26880.00,PHP,filed,
+alder_AF-0229.pdf,Alder & Finch Legal Services,AF/0229,2026-08-03,26880.00,PHP,filed,
+alder_AF-0230.pdf,Alder & Finch Legal Services,AF/0230,2026-08-30,15120.00,PHP,filed,
+brightwave_nonumber_840.pdf,Brightwave Marketing Co.,,2026-08-31,34944.00,PHP,needs_review,missing invoice number
+greenleaf_nonumber_533.pdf,GreenLeaf Catering,,2026-09-01,7420.00,PHP,needs_review,missing invoice number
+northstar_NS0136.pdf,Northstar IT Supplies,NS0136,2026-09-29,8650.00,PHP,needs_review,total does not match line items
+alder_AF-0236.pdf,Alder & Finch Legal Services,AF/0236,2026-08-14,20410.00,PHP,needs_review,total does not match line items
+pacific_INV-2026-0264.pdf,Pacific Cloud Hosting,INV-2026-0264,2026-08-24,4283.00,USD,needs_review,unusually high total
+brightwave_BW-0200.pdf,Brightwave Marketing Co.,BW-0200,,23520.00,PHP,needs_review,missing invoice date

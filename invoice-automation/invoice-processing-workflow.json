@@ -1,0 +1,538 @@
+{
+  "name": "JCE Invoice Processing",
+  "nodes": [
+    {
+      "parameters": {
+        "formTitle": "Invoice Upload",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Invoice",
+              "fieldType": "file",
+              "multipleFiles": false,
+              "acceptFileTypes": ".pdf"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.6,
+      "position": [
+        0,
+        0
+      ],
+      "id": "68f25010-7ffa-4139-9d56-417fcc29c96a",
+      "name": "Invoice Upload",
+      "webhookId": "3d340b95-a6cb-4154-a023-9d0f2ad5a323"
+    },
+    {
+      "parameters": {
+        "operation": "pdf",
+        "binaryPropertyName": "Invoice",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.2,
+      "position": [
+        224,
+        0
+      ],
+      "id": "ec4795ef-f031-424c-aa3d-e54c0bfc0191",
+      "name": "Extract from File"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:11434/api/chat",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  model: \"qwen2.5:3b\",\n  stream: false,\n  options: { temperature: 0 },\n  format: {\n    type: \"object\",\n    properties: {\n      vendor: { type: [\"string\", \"null\"] },\n      invoice_number: { type: [\"string\", \"null\"] },\n      invoice_date: { type: [\"string\", \"null\"] },\n      currency: { type: [\"string\", \"null\"] },\n      total: { type: [\"number\", \"null\"] },\n      line_items: {\n        type: \"array\",\n        items: {\n          type: \"object\",\n          properties: {\n            description: { type: \"string\" },\n            quantity: { type: \"number\" },\n            unit_price: { type: \"number\" },\n            amount: { type: \"number\" }\n          },\n          required: [\"description\", \"quantity\", \"unit_price\", \"amount\"]\n        }\n      }\n    },\n    required: [\"vendor\", \"invoice_number\", \"invoice_date\", \"currency\", \"total\", \"line_items\"]\n  },\n  messages: [\n    {\n      role: \"system\",\n      content: \"You extract data from invoice text. Return JSON only.\\n\\nRules:\\n- vendor: the company that issued the invoice (the name at the top), not the 'Bill To' client.\\n- invoice_number: the code labeled Invoice No, Invoice #, Invoice ID, Bill No, or Ref. Copy it exactly. It must contain at least one digit. The heading word INVOICE is not an invoice number. If no labeled number is present, use null.\\n- invoice_date: always format as YYYY-MM-DD. Dates written like 12/08/2026 are DD/MM/YYYY (day first).\\n- currency: 3-letter code. A $ sign means USD. A plain P or ₱ before amounts means PHP. The text PHP means PHP.\\n- total: the final amount due, as a plain number with no currency symbol or commas. Copy the printed total. Do not calculate it yourself.\\n- line_items: every row in the item table. Numbers only, no currency symbols or commas.\\n- If a field is not present in the text, use null. Never guess or invent a value.\"\n    },\n    { role: \"user\", content: $json.text }\n  ]\n}) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        448,
+        0
+      ],
+      "id": "cb0c6b42-88a3-4dca-8233-7665e1cf3816",
+      "name": "HTTP Request"
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $input.first().json.message.content;\nlet data;\ntry {\n  data = JSON.parse(raw);\n} catch (e) {\n  data = { parse_error: true, raw_output: raw };\n}\nreturn [{ json: data }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        0
+      ],
+      "id": "e7d940c2-dcf7-46ba-b30c-db3b88f6596f",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = /** @type {any} */ ($input.first().json);\n\n// Get the original PDF's file name (works for both form and webhook)\nlet bin = {};\ntry { bin = $('Invoice Upload').first().binary || {}; } catch (e) {}\nif (!Object.keys(bin).length) {\n  try { bin = $('Webhook').first().binary || {}; } catch (e) {}\n}\nconst key = Object.keys(bin)[0];\nconst sourceFile = key ? bin[key].fileName : null;\n\nconst reasons = [];\n\n// Clean up empty or fake invoice numbers\nif (typeof data.invoice_number === 'string') {\n  data.invoice_number = data.invoice_number.trim();\n  if (data.invoice_number === '' || !/\\d/.test(data.invoice_number)) {\n    data.invoice_number = null;\n  }\n}\n\n// Invoice number must appear in the PDF right after an invoice label\nconst pdfText = ($('Extract from File').first().json.text) || '';\nif (data.invoice_number) {\n  const num = String(data.invoice_number);\n  const esc = num.replace(/[.*+?^${}()|[\\]\\\\\\/]/g, '\\\\$&');\n  const labelled = new RegExp(\n    '(invoice\\\\s*(no\\\\.?|#|id|number)|bill\\\\s*no\\\\.?|ref)\\\\s*[:#]?\\\\s*' + esc + '(?![\\\\w])', 'i'\n  );\n  if (!labelled.test(pdfText)) {\n    data.invoice_number = null;\n  }\n}\n\n// 1. Did the AI output break?\nif (data.parse_error) {\n  reasons.push('AI output could not be parsed');\n}\n\n// 2. Required fields present?\nconst required = ['vendor', 'invoice_number', 'invoice_date', 'currency', 'total'];\nfor (const f of required) {\n  if (data[f] === null || data[f] === undefined || data[f] === '') {\n    reasons.push(`missing ${f}`);\n  }\n}\n\n// 3. Date format check\nif (data.invoice_date && !/^\\d{4}-\\d{2}-\\d{2}$/.test(data.invoice_date)) {\n  reasons.push('invalid date format');\n}\n\n// 4. Do the line items add up to the total?\nconst items = Array.isArray(data.line_items) ? data.line_items : [];\nif (items.length === 0) {\n  reasons.push('no line items found');\n} else if (typeof data.total === 'number') {\n  const sum = items.reduce((s, i) => s + (Number(i.amount) || 0), 0);\n  const matchesPlain = Math.abs(sum - data.total) < 0.01;\n  const matchesVat = Math.abs(sum * 1.12 - data.total) < 0.01;\n  if (!matchesPlain && !matchesVat) {\n    reasons.push(`total ${data.total} does not match line items (${sum.toFixed(2)})`);\n  }\n}\n\n// 5. Unusually high total\nconst limits = { PHP: 100000, USD: 2000 };\nconst limit = limits[data.currency] || 100000;\nif (typeof data.total === 'number' && data.total > limit) {\n  reasons.push('unusually high total');\n}\n\nreturn [{\n  json: {\n    ...data,\n    source_file: sourceFile,\n    status: reasons.length ? 'needs_review' : 'filed',\n    review_reason: reasons.length ? reasons.join('; ') : null\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        896,
+        64
+      ],
+      "id": "94d60e2c-3619-49dc-a3ac-add55166a265",
+      "name": "Code in JavaScript1"
+    },
+    {
+      "parameters": {
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "invoices",
+          "mode": "list",
+          "cachedResultName": "invoices"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "vendor": "={{ $json.vendor }}",
+            "invoice_number": "={{ $json.invoice_number }}",
+            "invoice_date": "={{ $json.invoice_date }}",
+            "total": "={{ $json.total }}",
+            "currency": "={{ $json.currency }}",
+            "line_items": "={{ JSON.stringify($json.line_items) }}",
+            "status": "={{ $json.status }}",
+            "review_reason": "={{ $json.review_reason }}",
+            "source_file": "={{ $json.source_file }}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "vendor",
+              "displayName": "vendor",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "invoice_number",
+              "displayName": "invoice_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "invoice_date",
+              "displayName": "invoice_date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "total",
+              "displayName": "total",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "currency",
+              "displayName": "currency",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "line_items",
+              "displayName": "line_items",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "review_reason",
+              "displayName": "review_reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "source_file",
+              "displayName": "source_file",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "created_at",
+              "displayName": "created_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {
+          "skipOnConflict": true
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.8,
+      "position": [
+        1088,
+        80
+      ],
+      "id": "243aeba2-9522-4055-b1fe-22837c94de9f",
+      "name": "Insert rows in a table",
+      "credentials": {
+        "postgres": {
+          "id": "ZecwqaQO4PHVXJdF",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 4
+          },
+          "conditions": [
+            {
+              "id": "b3ecf050-6800-46b9-815d-7678401ecf36",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "needs_review",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.4,
+      "position": [
+        1312,
+        80
+      ],
+      "id": "be28d766-9ca6-488c-b6b6-f2f023ef9a89",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "sendTo": "your-email@example.com",
+        "subject": "=Invoice needs review: {{ $json.source_file }}",
+        "emailType": "text",
+        "message": "=An invoice was flagged and needs a human check.  \n\nFile: {{ $json.source_file }} \nVendor: {{ $json.vendor }} \nInvoice number: {{ $json.invoice_number }} \nTotal: {{ $json.total }} {{ $json.currency }}  \n\nReason: {{ $json.review_reason }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1536,
+        -16
+      ],
+      "id": "7da99ab9-c59c-4afb-8d81-ed9258cebd92",
+      "name": "Send a message",
+      "webhookId": "0bc5eeac-0137-41f9-a224-ec6326d6ad54",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "xBtQl6SCRVkE5a18",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_SHEET_ID",
+          "mode": "list",
+          "cachedResultName": "Invoices Filed",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_SHEET_ID/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_SHEET_ID/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "vendor",
+              "displayName": "vendor",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "invoice_number",
+              "displayName": "invoice_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "invoice_date",
+              "displayName": "invoice_date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "total",
+              "displayName": "total",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "currency",
+              "displayName": "currency",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "source_file",
+              "displayName": "source_file",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1536,
+        176
+      ],
+      "id": "aaa35da0-9137-4f68-aaaa-db8dbd42df1d",
+      "name": "Append row in sheet",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "XY3DbRk3Cyi2TndO",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "invoice-upload",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        144
+      ],
+      "id": "0c97e536-7515-4b5a-adef-9fb96d0c7ead",
+      "name": "Webhook",
+      "webhookId": "155b00f0-eff1-4a96-a2e4-a01811479c5f"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Invoice Upload": {
+      "main": [
+        [
+          {
+            "node": "Extract from File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract from File": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript1": {
+      "main": [
+        [
+          {
+            "node": "Insert rows in a table",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert rows in a table": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Send a message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Append row in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Extract from File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "L4YYbhpNnXhOHZMH",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "versionId": "5271f1c7-5c17-46e9-8fd5-cc9c6ac5055d",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": ""
+  },
+  "nodeGroups": [],
+  "id": "Me1PrWcyKgZsqWfc",
+  "tags": []
+}
