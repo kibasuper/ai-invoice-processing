@@ -2,7 +2,7 @@
 
 An automation that reads invoice PDFs, extracts the key fields with a local AI model, checks the result, and then either files the invoice automatically or sends it to a human for review. It runs entirely on my own computer with free tools, with no paid APIs.
 
-**Demo video:** [paste Loom link]
+**Demo video:** https://youtu.be/IkZC2kHqDLY
 
 ## What it does
 
